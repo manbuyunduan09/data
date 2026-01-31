@@ -1,0 +1,12 @@
+streamlit
+pandas
+plotly
+openpyxl
+streamlit-echarts
+fastapi
+uvicorn
+kaleido
+pillow
+pytest
+pytest-cov
+httpx
