@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>数据看板导出服务</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <main class="wrap">
+      <h1>数据看板导出服务</h1>
+
+      <section class="card">
+        <div class="row">
+          <div class="label">API 文档</div>
+          <div class="value"><a href="/docs" target="_blank" rel="noreferrer">/docs</a></div>
+        </div>
+        <div class="row">
+          <div class="label">健康检查</div>
+          <div class="value"><button id="btnHealth">GET /api/health</button></div>
+        </div>
+        <pre id="healthOut" class="out"></pre>
+      </section>
+
+      <section class="card">
+        <h2>最小导出测试</h2>
+        <div class="grid">
+          <label>
+            <div class="label">用户标识</div>
+            <input id="userEmail" type="text" value="u1" />
+          </label>
+          <label>
+            <div class="label">产品名</div>
+            <input id="productName" type="text" value="赛博朋克业务数据看板生成器" />
+          </label>
+          <label>
+            <div class="label">格式</div>
+            <select id="exportFormat">
+              <option value="html">html</option>
+              <option value="xlsx">xlsx</option>
+            </select>
+          </label>
+        </div>
+        <div class="actions">
+          <button id="btnCreate">POST /api/v1/export</button>
+          <button id="btnPoll" disabled>GET /api/v1/export/status</button>
+        </div>
+        <pre id="exportOut" class="out"></pre>
+      </section>
+
+      <section class="note">
+        <div>说明：Vercel 轻量部署以代理模式提供 API；需配置 EXPORT_BACKEND_BASE_URL 才能执行导出。</div>
+      </section>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+</html>

@@ -55,8 +55,8 @@ if "export_task_id" not in st.session_state:
 if "export_task_format" not in st.session_state:
     st.session_state.export_task_format = None
 
-if "export_task_email" not in st.session_state:
-    st.session_state.export_task_email = ""
+if "export_task_user" not in st.session_state:
+    st.session_state.export_task_user = f"local-{uuid.uuid4()}"
 
 if "export_file_bytes" not in st.session_state:
     st.session_state.export_file_bytes = None
@@ -276,6 +276,10 @@ def get_preview_title(chart_conf):
         if metrics and dimension and dimension != "不选择":
             return f"{metrics[0]} 按 {dimension} 排名"
         return "排名图"
+    if ctype == "柱形图":
+        if metrics and dimension and dimension != "不选择":
+            return f"{' · '.join(metrics)} 按 {dimension} 柱形"
+        return "柱形图"
     if ctype == "漏斗图":
         if len(metrics) > 1:
             return " → ".join(metrics) + " 转化漏斗"
@@ -321,6 +325,8 @@ def style_candidates_for(chart_type: str) -> list[str]:
         return ["大屏发光", "面积", "折线"]
     if chart_type == "排名图":
         return ["实时排名赛", "横向", "竖向"]
+    if chart_type == "柱形图":
+        return ["分组", "堆叠", "横向"]
     if chart_type == "占比图":
         return ["环形", "玫瑰", "饼图"]
     if chart_type == "散点图":
@@ -835,6 +841,87 @@ def render_bar_chart(df, metrics, dimension, style):
     st_echarts(options=option, height="300px", key=f"chart_{uuid.uuid4()}")
 
 
+def render_column_chart(df, metrics, dimension, style):
+    if not metrics or dimension == "不选择":
+        st.warning("柱形图需要选择【核心指标】和【分组/对比维度】")
+        return
+
+    safe_metrics = [m for m in (metrics or []) if m in df.columns]
+    if not safe_metrics or dimension not in df.columns:
+        st.warning("柱形图配置无效")
+        return
+
+    tmp = df[[dimension] + safe_metrics].dropna().copy()
+    tmp[dimension] = tmp[dimension].astype(str)
+    for m in safe_metrics:
+        tmp[m] = pd.to_numeric(tmp[m], errors="coerce")
+    tmp = tmp.dropna(subset=safe_metrics)
+    if tmp.empty:
+        st.warning("柱形图无可用数据")
+        return
+
+    g = tmp.groupby(dimension)[safe_metrics].sum(numeric_only=True).reset_index()
+    if g.empty:
+        st.warning("柱形图无可用数据")
+        return
+
+    primary_metric = safe_metrics[0]
+    g = g.sort_values(by=primary_metric, ascending=False).head(20)
+    categories = g[dimension].astype(str).tolist()
+
+    column_style = str(style or "分组")
+    is_horizontal = column_style == "横向"
+    is_stacked = column_style == "堆叠"
+
+    colors = ["#1277D1", "#2FA3FF", "#FF8A3D", "#FF5252", "#8C52FF"]
+    series = []
+    for idx, m in enumerate(safe_metrics):
+        s = {
+            "name": m,
+            "type": "bar",
+            "data": g[m].tolist(),
+            "barMaxWidth": 30,
+            "itemStyle": {"color": colors[idx % len(colors)]},
+        }
+        if is_stacked:
+            s["stack"] = "total"
+        series.append(s)
+
+    if is_horizontal:
+        x_axis = {
+            "type": "value",
+            "axisLabel": {"color": "#3A4A63"},
+            "splitLine": {"lineStyle": {"color": "rgba(167, 201, 255, 0.3)", "type": "dashed"}},
+        }
+        y_axis = {"type": "category", "data": categories, "axisLabel": {"color": "#3A4A63"}}
+    else:
+        x_axis = {
+            "type": "category",
+            "data": categories,
+            "axisLabel": {"color": "#3A4A63", "rotate": 20 if len(categories) >= 10 else 0},
+            "axisLine": {"lineStyle": {"color": "#A7C9FF"}},
+        }
+        y_axis = {
+            "type": "value",
+            "axisLabel": {"color": "#3A4A63"},
+            "splitLine": {"lineStyle": {"color": "rgba(167, 201, 255, 0.3)", "type": "dashed"}},
+        }
+
+    option = {
+        "title": {
+            "text": f"{' / '.join(safe_metrics)} 柱形对比",
+            "textStyle": {"color": "#1277D1", "fontSize": 16},
+        },
+        "tooltip": {"trigger": "axis", "axisPointer": {"type": "shadow"}},
+        "legend": {"data": safe_metrics, "textStyle": {"color": "#3A4A63"}, "top": 25},
+        "grid": {"left": "3%", "right": "4%", "bottom": "3%", "containLabel": True},
+        "xAxis": x_axis,
+        "yAxis": y_axis,
+        "series": series,
+    }
+    st_echarts(options=option, height="360px", key=f"chart_{uuid.uuid4()}")
+
+
 def render_funnel_chart(df, metrics, dimension):
     data = []
     title_text = "转化漏斗"
@@ -1210,7 +1297,7 @@ def render_chart(chart_conf, df_data, *, is_preview=False):
 
     st.markdown('<div class="tech-card" style="position: relative;">', unsafe_allow_html=True)
 
-    type_options = ["趋势图", "排名图", "占比图", "漏斗图", "箱线图", "散点图", "热力图", "雷达图", "仪表盘", "桑基图", "地图"]
+    type_options = ["趋势图", "排名图", "柱形图", "占比图", "漏斗图", "箱线图", "散点图", "热力图", "雷达图", "仪表盘", "桑基图", "地图"]
     if chart_type not in type_options:
         chart_type = type_options[0]
 
@@ -1290,6 +1377,8 @@ def render_chart(chart_conf, df_data, *, is_preview=False):
         render_pie_chart(df_data, metrics, dimension, style)
     elif chart_type == "排名图":
         render_bar_chart(df_data, metrics, dimension, style)
+    elif chart_type == "柱形图":
+        render_column_chart(df_data, metrics, dimension, style)
     elif chart_type == "漏斗图":
         render_funnel_chart(df_data, metrics, dimension)
     elif chart_type == "箱线图":
@@ -1387,6 +1476,14 @@ if uploaded_file is not None:
                 st.session_state.chart_type = "排名图"
                 st.session_state.chart_style = "实时排名赛"
 
+            rec1b = st.columns(2)
+            if rec1b[0].button("分组柱形", use_container_width=True):
+                st.session_state.chart_type = "柱形图"
+                st.session_state.chart_style = "分组"
+            if rec1b[1].button("堆叠柱形", use_container_width=True):
+                st.session_state.chart_type = "柱形图"
+                st.session_state.chart_style = "堆叠"
+
             rec2 = st.columns(2)
             if rec2[0].button("环形占比", use_container_width=True):
                 st.session_state.chart_type = "占比图"
@@ -1438,11 +1535,11 @@ if uploaded_file is not None:
 
         chart_type = st.sidebar.selectbox(
             "当前图形",
-            options=["趋势图", "排名图", "占比图", "漏斗图", "箱线图", "散点图", "热力图", "雷达图", "仪表盘", "桑基图", "地图"],
-            index=["趋势图", "排名图", "占比图", "漏斗图", "箱线图", "散点图", "热力图", "雷达图", "仪表盘", "桑基图", "地图"].index(
+            options=["趋势图", "排名图", "柱形图", "占比图", "漏斗图", "箱线图", "散点图", "热力图", "雷达图", "仪表盘", "桑基图", "地图"],
+            index=["趋势图", "排名图", "柱形图", "占比图", "漏斗图", "箱线图", "散点图", "热力图", "雷达图", "仪表盘", "桑基图", "地图"].index(
                 st.session_state.chart_type
             )
-            if st.session_state.chart_type in ["趋势图", "排名图", "占比图", "漏斗图", "箱线图", "散点图", "热力图", "雷达图", "仪表盘", "桑基图", "地图"]
+            if st.session_state.chart_type in ["趋势图", "排名图", "柱形图", "占比图", "漏斗图", "箱线图", "散点图", "热力图", "雷达图", "仪表盘", "桑基图", "地图"]
             else 0,
         )
         st.session_state.chart_type = chart_type
@@ -1647,8 +1744,7 @@ if uploaded_file is not None:
         )
 
         st.sidebar.markdown("#### 已保存看板导出（MVP）")
-        user_email = st.sidebar.text_input("用户邮箱（用于水印）", value=st.session_state.export_task_email)
-        st.session_state.export_task_email = user_email
+        export_user = str(st.session_state.export_task_user)
         export_format_label = st.sidebar.selectbox("导出格式", options=["可交互 HTML", "Excel (.xlsx)"], index=0)
         export_format = "html" if export_format_label.startswith("可交互") else "xlsx"
 
@@ -1699,14 +1795,12 @@ if uploaded_file is not None:
         start_export = run_cols[0].button("开始导出", type="primary", use_container_width=True)
         cancel_export = run_cols[1].button("取消任务", use_container_width=True)
 
-        if cancel_export and st.session_state.export_task_id and user_email:
-            export_core.TASK_MANAGER.cancel(st.session_state.export_task_id, user_email=user_email)
+        if cancel_export and st.session_state.export_task_id:
+            export_core.TASK_MANAGER.cancel(st.session_state.export_task_id, user_email=export_user)
             st.rerun()
 
         if start_export:
-            if not user_email:
-                st.sidebar.error("请先填写用户邮箱（用于水印）")
-            elif num_cards == 0 and num_charts == 0:
+            if num_cards == 0 and num_charts == 0:
                 st.sidebar.error("请至少勾选一个导出项")
             else:
                 chart_confs = [c for c in saved_chart_confs if c["id"] in set(selected_chart_ids)]
@@ -1729,7 +1823,7 @@ if uploaded_file is not None:
                     if export_format == "html":
                         res = export_core.export_dashboard_html(
                             product_name=product_name,
-                            user_email=user_email,
+                            user_email="",
                             language_default=language_default,
                             cards=cards,
                             charts=charts,
@@ -1737,7 +1831,7 @@ if uploaded_file is not None:
                     else:
                         res = export_core.export_dashboard_xlsx(
                             product_name=product_name,
-                            user_email=user_email,
+                            user_email="",
                             cards=cards,
                             charts=charts,
                         )
@@ -1745,7 +1839,7 @@ if uploaded_file is not None:
                     return res
 
                 task = export_core.TASK_MANAGER.submit(
-                    user_email=user_email,
+                    user_email=export_user,
                     export_format=export_format,
                     estimate=estimate,
                     runner=runner,
@@ -1757,13 +1851,13 @@ if uploaded_file is not None:
                 st.session_state.export_file_sha256 = None
                 st.rerun()
 
-        if st.session_state.export_task_id and user_email:
+        if st.session_state.export_task_id:
             task = export_core.TASK_MANAGER.get(st.session_state.export_task_id)
-            if task and task.user_email == user_email:
+            if task and task.user_email == export_user:
                 st.sidebar.progress(task.progress / 100)
                 st.sidebar.caption(f"任务状态：{task.status} | traceId={task.trace_id}")
                 if task.status == "succeeded":
-                    result = export_core.TASK_MANAGER.get_result(task.task_id, user_email=user_email)
+                    result = export_core.TASK_MANAGER.get_result(task.task_id, user_email=export_user)
                     if result and st.session_state.export_file_bytes is None:
                         st.session_state.export_file_bytes = result.content
                         st.session_state.export_file_sha256 = result.sha256
@@ -1796,7 +1890,7 @@ if uploaded_file is not None:
                     time.sleep(0.6)
                     st.rerun()
 
-        st.sidebar.info("提示：导出文件默认带水印（产品名/邮箱/UTC时间）。")
+        st.sidebar.info("提示：导出文件默认带水印（产品名/UTC时间）。")
 
 else:
     st.info("欢迎使用，请在左侧上传数据文件开始。")
